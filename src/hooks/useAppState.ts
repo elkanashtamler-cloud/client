@@ -27,7 +27,7 @@ export function useAppState() {
       .channel('app_state-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, () => fetchState())
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => { supabase?.removeChannel(channel) }
   }, [fetchState])
 
   const setShoppingMode = useCallback(async (on: boolean, shopperName: string | null) => {

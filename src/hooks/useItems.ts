@@ -34,7 +34,7 @@ export function useItems() {
       })
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      supabase?.removeChannel(channel)
     }
   }, [fetchItems])
 
