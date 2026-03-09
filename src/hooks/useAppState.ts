@@ -22,12 +22,15 @@ export function useAppState() {
   }, [fetchState])
 
   useEffect(() => {
-    if (!supabase) return
-    const channel = supabase
+    const client = supabase
+    if (!client) return
+    const channel = client
       .channel('app_state-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, () => fetchState())
       .subscribe()
-    return () => { supabase?.removeChannel(channel) }
+    return () => {
+      if (client) client.removeChannel(channel)
+    }
   }, [fetchState])
 
   const setShoppingMode = useCallback(async (on: boolean, shopperName: string | null) => {

@@ -26,15 +26,16 @@ export function useItems() {
   }, [fetchItems])
 
   useEffect(() => {
-    if (!supabase) return
-    const channel = supabase
+    const client = supabase
+    if (!client) return
+    const channel = client
       .channel('items-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
         fetchItems()
       })
       .subscribe()
     return () => {
-      supabase?.removeChannel(channel)
+      if (client) client.removeChannel(channel)
     }
   }, [fetchItems])
 
