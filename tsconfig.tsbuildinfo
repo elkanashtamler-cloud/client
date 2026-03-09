@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/backgroundslideshow.tsx","./src/components/shoppinglist.tsx","./src/hooks/useappstate.ts","./src/hooks/useitems.ts","./src/lib/categories.ts","./src/lib/itemdictionary.ts","./src/lib/supabase.ts"],"version":"5.6.3"}
