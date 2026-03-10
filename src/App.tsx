@@ -1,10 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from './lib/supabase'
 import { useItems } from './hooks/useItems'
 import { useAppState } from './hooks/useAppState'
+import {
+  isPushSupported,
+  requestPermission,
+  subscribeToPush,
+  saveSubscriptionToSupabase
+} from './lib/pushNotifications'
 import { ShoppingList } from './components/ShoppingList'
+
+export type SessionUser = { email?: string; id?: string }
+
 export default function App() {
-  const [session, setSession] = useState<{ email?: string } | null>(null)
+  const [session, setSession] = useState<SessionUser | null>(null)
   const [loading, setLoading] = useState(true)
   const { items, loading: itemsLoading, addItem, toggleComplete, deleteItem, clearCompleted } = useItems()
   const { is_shopping, shopper_name, setShoppingMode } = useAppState()
@@ -26,19 +35,32 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session?.user ? { email: session.user.email ?? undefined } : null)
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s?.user ? { email: s.user.email ?? undefined, id: s.user.id } : null)
       setLoading(false)
     })
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session?.user ? { email: session.user.email ?? undefined } : null)
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s?.user ? { email: s.user.email ?? undefined, id: s.user.id } : null)
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  const ensurePushSubscription = useCallback(async () => {
+    if (!supabase || !isPushSupported()) return
+    const perm = await requestPermission()
+    if (perm !== 'granted') return
+    const sub = await subscribeToPush()
+    if (sub) await saveSubscriptionToSupabase(supabase, sub)
+  }, [])
+
+  useEffect(() => {
+    if (!session?.id) return
+    ensurePushSubscription()
+  }, [session?.id, ensurePushSubscription])
 
   if (!supabase) {
     return (
@@ -94,7 +116,20 @@ VITE_SUPABASE_ANON_KEY=...`}
                 <input
                   type="checkbox"
                   checked={is_shopping}
-                  onChange={(e) => setShoppingMode(e.target.checked, session?.email ? session.email.split('@')[0] : null)}
+                  onChange={async (e) => {
+                    const on = e.target.checked
+                    const name = session?.email ? session.email.split('@')[0] : null
+                    await setShoppingMode(on, name)
+                    if (on && name && session?.id && supabase) {
+                      try {
+                        await supabase.functions.invoke('notify-supermarket', {
+                          body: { shopper_user_id: session.id, shopper_name: name }
+                        })
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
                   className="rounded"
                 />
                 מצב סופרמרקט
