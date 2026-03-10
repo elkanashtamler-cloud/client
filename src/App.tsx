@@ -1,21 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { useItems } from './hooks/useItems'
 import { useAppState } from './hooks/useAppState'
-import {
-  isPushSupported,
-  getPermissionState,
-  requestPermission,
-  subscribeToPush,
-  getExistingSubscription,
-  saveSubscriptionToSupabase,
-} from './lib/pushNotifications'
 import { ShoppingList } from './components/ShoppingList'
 
-export type SessionUser = { email?: string; id?: string }
-
 export default function App() {
-  const [session, setSession] = useState<SessionUser | null>(null)
+  const [session, setSession] = useState<{ email?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const { items, loading: itemsLoading, addItem, toggleComplete, deleteItem, clearCompleted } = useItems()
   const { is_shopping, shopper_name, setShoppingMode } = useAppState()
@@ -38,92 +28,17 @@ export default function App() {
   useEffect(() => {
     if (!supabase) return
     supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s?.user ? { email: s.user.email ?? undefined, id: s.user.id } : null)
+      setSession(s?.user ? { email: s.user.email ?? undefined } : null)
       setLoading(false)
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s?.user ? { email: s.user.email ?? undefined, id: s.user.id } : null)
+      setSession(s?.user ? { email: s.user.email ?? undefined } : null)
     })
 
     return () => subscription.unsubscribe()
-  }, [])
-
-  type NotifStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
-  const [notifStatus, setNotifStatus] = useState<NotifStatus>('idle')
-  const [notifError, setNotifError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!session?.id || !isPushSupported()) return
-    ;(async () => {
-      try {
-        const perm = getPermissionState()
-        if (perm === 'denied') {
-          setNotifStatus('denied')
-          setNotifError('ההתראות חסומות בדפדפן. יש לאפשר ידנית בהגדרות הדפדפן.')
-          return
-        }
-        if (perm === 'granted') {
-          const existing = await getExistingSubscription()
-          if (existing?.endpoint) {
-            setNotifStatus('granted')
-            setNotifError(null)
-            return
-          }
-          // אין מנוי פעיל למרות שההרשאה granted – נאפשר לחיצה מחדש
-          setNotifStatus('idle')
-          setNotifError(null)
-          return
-        }
-        // perm === 'default'
-        setNotifStatus('idle')
-        setNotifError(null)
-      } catch (e) {
-        console.error('Failed to inspect push subscription', e)
-        setNotifStatus('error')
-        setNotifError('בדיקת מצב ההתראות נכשלה, אפשר לנסות שוב.')
-      }
-    })()
-  }, [session?.id])
-
-  const handleEnableNotifications = useCallback(async () => {
-    if (!supabase || !isPushSupported()) return
-    setNotifStatus('loading')
-    setNotifError(null)
-    try {
-      const perm = await requestPermission()
-      if (perm !== 'granted') {
-        if (perm === 'denied') {
-          setNotifStatus('denied')
-          setNotifError('ההתראות נחסמו בדפדפן. אפשר לשנות זאת דרך הגדרות האתר בדפדפן.')
-        } else {
-          setNotifStatus('idle')
-          setNotifError(null)
-        }
-        return
-      }
-      const sub = await subscribeToPush()
-      if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) {
-        console.error('Push subscription missing data', sub)
-        setNotifStatus('error')
-        setNotifError('ההרשמה להתראות נכשלה (נתוני מנוי חסרים).')
-        return
-      }
-      const ok = await saveSubscriptionToSupabase(supabase, sub)
-      if (ok) {
-        setNotifStatus('granted')
-        setNotifError(null)
-      } else {
-        setNotifStatus('error')
-        setNotifError('שמירת המנוי בשרת נכשלה. אפשר לנסות שוב.')
-      }
-    } catch (e) {
-      console.error('Failed to enable notifications', e)
-      setNotifStatus('error')
-      setNotifError(e instanceof Error ? e.message : 'שגיאה לא צפויה בעת הפעלת ההתראות.')
-    }
   }, [])
 
   if (!supabase) {
@@ -176,20 +91,6 @@ VITE_SUPABASE_ANON_KEY=...`}
           <header className="flex justify-between items-center mb-4 flex-wrap gap-2">
             <h1 className="text-2xl font-bold text-gray-900">רשימת קניות</h1>
             <div className="flex items-center gap-3 flex-wrap">
-              {isPushSupported() && (
-                <button
-                  type="button"
-                  onClick={handleEnableNotifications}
-                  disabled={notifStatus === 'loading' || notifStatus === 'denied'}
-                  className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-default"
-                >
-                  {notifStatus === 'loading' && 'מפעיל...'}
-                  {notifStatus === 'granted' && 'התראות מופעלות'}
-                  {notifStatus === 'denied' && 'התראות חסומות בדפדפן'}
-                  {notifStatus === 'error' && 'שגיאה – נסה שוב'}
-                  {notifStatus === 'idle' && 'הפעל התראות'}
-                </button>
-              )}
               <label className="flex items-center gap-2 text-gray-800 text-sm cursor-pointer">
                 <input
                   type="checkbox"
@@ -198,15 +99,6 @@ VITE_SUPABASE_ANON_KEY=...`}
                     const on = e.target.checked
                     const name = session?.email ? session.email.split('@')[0] : null
                     await setShoppingMode(on, name)
-                    if (on && name && session?.id && supabase) {
-                      try {
-                        await supabase.functions.invoke('notify-supermarket', {
-                          body: { shopper_user_id: session.id, shopper_name: name }
-                        })
-                      } catch {
-                        // ignore
-                      }
-                    }
                   }}
                   className="rounded"
                 />
@@ -221,9 +113,6 @@ VITE_SUPABASE_ANON_KEY=...`}
                 התנתק
               </button>
             </div>
-            {notifError && (
-              <p className="text-xs text-red-600 mt-1 w-full">{notifError}</p>
-            )}
           </header>
         </div>
         <div className="flex-1 min-h-0 max-w-2xl w-full mx-auto px-4 pb-12 overflow-y-auto">

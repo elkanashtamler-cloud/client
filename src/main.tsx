@@ -1,11 +1,8 @@
 import { StrictMode, Component, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { registerServiceWorker } from './lib/pushNotifications'
 import App from './App'
 import './index.css'
-
-registerServiceWorker().catch(() => {})
 
 const queryClient = new QueryClient()
 
