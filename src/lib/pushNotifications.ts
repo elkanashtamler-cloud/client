@@ -41,14 +41,25 @@ export async function requestPermission(): Promise<NotificationPermission> {
  * Caller should save the result to Supabase push_subscriptions.
  */
 export async function subscribeToPush(): Promise<PushSubscriptionJSON | null> {
-  if (!VAPID_PUBLIC_KEY?.trim()) return null
+  if (!VAPID_PUBLIC_KEY?.trim()) {
+    console.error('VITE_VAPID_PUBLIC_KEY is missing')
+    return null
+  }
   const reg = await navigator.serviceWorker.ready
   const key = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: key
+    applicationServerKey: key,
   })
   return sub.toJSON()
+}
+
+/** Check if there is already an active push subscription for this service worker. */
+export async function getExistingSubscription(): Promise<PushSubscriptionJSON | null> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null
+  const reg = await navigator.serviceWorker.ready
+  const current = await reg.pushManager.getSubscription()
+  return current ? current.toJSON() : null
 }
 
 /** Register service worker. Call once at app init. */

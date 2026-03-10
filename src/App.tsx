@@ -7,7 +7,8 @@ import {
   getPermissionState,
   requestPermission,
   subscribeToPush,
-  saveSubscriptionToSupabase
+  getExistingSubscription,
+  saveSubscriptionToSupabase,
 } from './lib/pushNotifications'
 import { ShoppingList } from './components/ShoppingList'
 
@@ -56,10 +57,35 @@ export default function App() {
 
   useEffect(() => {
     if (!session?.id || !isPushSupported()) return
-    const perm = getPermissionState()
-    if (perm === 'granted') setNotifStatus('granted')
-    else if (perm === 'denied') setNotifStatus('denied')
-    else setNotifStatus('idle')
+    ;(async () => {
+      try {
+        const perm = getPermissionState()
+        if (perm === 'denied') {
+          setNotifStatus('denied')
+          setNotifError('ההתראות חסומות בדפדפן. יש לאפשר ידנית בהגדרות הדפדפן.')
+          return
+        }
+        if (perm === 'granted') {
+          const existing = await getExistingSubscription()
+          if (existing?.endpoint) {
+            setNotifStatus('granted')
+            setNotifError(null)
+            return
+          }
+          // אין מנוי פעיל למרות שההרשאה granted – נאפשר לחיצה מחדש
+          setNotifStatus('idle')
+          setNotifError(null)
+          return
+        }
+        // perm === 'default'
+        setNotifStatus('idle')
+        setNotifError(null)
+      } catch (e) {
+        console.error('Failed to inspect push subscription', e)
+        setNotifStatus('error')
+        setNotifError('בדיקת מצב ההתראות נכשלה, אפשר לנסות שוב.')
+      }
+    })()
   }, [session?.id])
 
   const handleEnableNotifications = useCallback(async () => {
@@ -69,24 +95,34 @@ export default function App() {
     try {
       const perm = await requestPermission()
       if (perm !== 'granted') {
-        setNotifStatus(perm === 'denied' ? 'denied' : 'idle')
+        if (perm === 'denied') {
+          setNotifStatus('denied')
+          setNotifError('ההתראות נחסמו בדפדפן. אפשר לשנות זאת דרך הגדרות האתר בדפדפן.')
+        } else {
+          setNotifStatus('idle')
+          setNotifError(null)
+        }
         return
       }
       const sub = await subscribeToPush()
       if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) {
+        console.error('Push subscription missing data', sub)
         setNotifStatus('error')
-        setNotifError('VITE_VAPID_PUBLIC_KEY חסר או שההרשמה נכשלה')
+        setNotifError('ההרשמה להתראות נכשלה (נתוני מנוי חסרים).')
         return
       }
       const ok = await saveSubscriptionToSupabase(supabase, sub)
-      if (ok) setNotifStatus('granted')
-      else {
+      if (ok) {
+        setNotifStatus('granted')
+        setNotifError(null)
+      } else {
         setNotifStatus('error')
-        setNotifError('שמירת המנוי נכשלה')
+        setNotifError('שמירת המנוי בשרת נכשלה. אפשר לנסות שוב.')
       }
     } catch (e) {
+      console.error('Failed to enable notifications', e)
       setNotifStatus('error')
-      setNotifError(e instanceof Error ? e.message : 'שגיאה לא צפויה')
+      setNotifError(e instanceof Error ? e.message : 'שגיאה לא צפויה בעת הפעלת ההתראות.')
     }
   }, [])
 
@@ -144,12 +180,12 @@ VITE_SUPABASE_ANON_KEY=...`}
                 <button
                   type="button"
                   onClick={handleEnableNotifications}
-                  disabled={notifStatus === 'loading' || notifStatus === 'granted'}
+                  disabled={notifStatus === 'loading' || notifStatus === 'denied'}
                   className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-default"
                 >
                   {notifStatus === 'loading' && 'מפעיל...'}
                   {notifStatus === 'granted' && 'התראות מופעלות'}
-                  {notifStatus === 'denied' && 'התראות חסומות'}
+                  {notifStatus === 'denied' && 'התראות חסומות בדפדפן'}
                   {notifStatus === 'error' && 'שגיאה – נסה שוב'}
                   {notifStatus === 'idle' && 'הפעל התראות'}
                 </button>
