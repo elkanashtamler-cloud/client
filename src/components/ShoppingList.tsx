@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Trash2, Plus, ShoppingCart } from 'lucide-react'
 import { getCategoryStyle } from '../lib/categories'
@@ -31,18 +31,25 @@ export function ShoppingList({ items, loading, onAdd, onToggle, onDelete, onClea
     setNote('')
   }
 
-  const pending = items.filter((i) => !i.is_completed)
-  const completed = items.filter((i) => i.is_completed)
+  const pending = useMemo(
+    () => items.filter((i) => !i.is_completed),
+    [items],
+  )
 
-  const groupByCategory = (list: ShoppingItem[]) => {
+  const completed = useMemo(
+    () => items.filter((i) => i.is_completed),
+    [items],
+  )
+
+  const groupedPending = useMemo(() => {
     const groups: Record<string, ShoppingItem[]> = {}
-    for (const item of list) {
+    for (const item of pending) {
       const cat = item.category || 'General'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(item)
     }
     return groups
-  }
+  }, [pending])
 
   if (loading) {
     return (
@@ -124,7 +131,7 @@ export function ShoppingList({ items, loading, onAdd, onToggle, onDelete, onClea
         </div>
       ) : (
         <>
-          {Object.entries(groupByCategory(pending)).map(([category, list]) => {
+          {Object.entries(groupedPending).map(([category, list]) => {
             const { label } = getCategoryStyle(category)
             return (
               <div
