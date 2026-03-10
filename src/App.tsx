@@ -4,6 +4,7 @@ import { useItems } from './hooks/useItems'
 import { useAppState } from './hooks/useAppState'
 import {
   isPushSupported,
+  getPermissionState,
   requestPermission,
   subscribeToPush,
   saveSubscriptionToSupabase
@@ -49,18 +50,45 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const ensurePushSubscription = useCallback(async () => {
-    if (!supabase || !isPushSupported()) return
-    const perm = await requestPermission()
-    if (perm !== 'granted') return
-    const sub = await subscribeToPush()
-    if (sub) await saveSubscriptionToSupabase(supabase, sub)
-  }, [])
+  type NotifStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
+  const [notifStatus, setNotifStatus] = useState<NotifStatus>('idle')
+  const [notifError, setNotifError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!session?.id) return
-    ensurePushSubscription()
-  }, [session?.id, ensurePushSubscription])
+    if (!session?.id || !isPushSupported()) return
+    const perm = getPermissionState()
+    if (perm === 'granted') setNotifStatus('granted')
+    else if (perm === 'denied') setNotifStatus('denied')
+    else setNotifStatus('idle')
+  }, [session?.id])
+
+  const handleEnableNotifications = useCallback(async () => {
+    if (!supabase || !isPushSupported()) return
+    setNotifStatus('loading')
+    setNotifError(null)
+    try {
+      const perm = await requestPermission()
+      if (perm !== 'granted') {
+        setNotifStatus(perm === 'denied' ? 'denied' : 'idle')
+        return
+      }
+      const sub = await subscribeToPush()
+      if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) {
+        setNotifStatus('error')
+        setNotifError('VITE_VAPID_PUBLIC_KEY חסר או שההרשמה נכשלה')
+        return
+      }
+      const ok = await saveSubscriptionToSupabase(supabase, sub)
+      if (ok) setNotifStatus('granted')
+      else {
+        setNotifStatus('error')
+        setNotifError('שמירת המנוי נכשלה')
+      }
+    } catch (e) {
+      setNotifStatus('error')
+      setNotifError(e instanceof Error ? e.message : 'שגיאה לא צפויה')
+    }
+  }, [])
 
   if (!supabase) {
     return (
@@ -112,6 +140,20 @@ VITE_SUPABASE_ANON_KEY=...`}
           <header className="flex justify-between items-center mb-4 flex-wrap gap-2">
             <h1 className="text-2xl font-bold text-gray-900">רשימת קניות</h1>
             <div className="flex items-center gap-3 flex-wrap">
+              {isPushSupported() && (
+                <button
+                  type="button"
+                  onClick={handleEnableNotifications}
+                  disabled={notifStatus === 'loading' || notifStatus === 'granted'}
+                  className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-default"
+                >
+                  {notifStatus === 'loading' && 'מפעיל...'}
+                  {notifStatus === 'granted' && 'התראות מופעלות'}
+                  {notifStatus === 'denied' && 'התראות חסומות'}
+                  {notifStatus === 'error' && 'שגיאה – נסה שוב'}
+                  {notifStatus === 'idle' && 'הפעל התראות'}
+                </button>
+              )}
               <label className="flex items-center gap-2 text-gray-800 text-sm cursor-pointer">
                 <input
                   type="checkbox"
@@ -143,6 +185,9 @@ VITE_SUPABASE_ANON_KEY=...`}
                 התנתק
               </button>
             </div>
+            {notifError && (
+              <p className="text-xs text-red-600 mt-1 w-full">{notifError}</p>
+            )}
           </header>
         </div>
         <div className="flex-1 min-h-0 max-w-2xl w-full mx-auto px-4 pb-12 overflow-y-auto">
